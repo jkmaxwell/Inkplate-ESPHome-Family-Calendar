@@ -23,6 +23,7 @@
 2. It will crash if your data isn't available in the API via NodeRed. If this happens just manually push the data via the inject node and give it a few more times to boot.
 3. It crashes a lot
 4. I have location strings disabled right now until I fix something and will push a fix for that soon.
+5. ESPHome-Inkplate is calculating the voltage incorrectly. I've asked [@jesserockz](https://github.com/e-radionicacom/Inkplate-Arduino-library/commit/27c9b71f51b70f3b0df6750bcc0f46a550b408de) to look into this.
 
 
 # Support
