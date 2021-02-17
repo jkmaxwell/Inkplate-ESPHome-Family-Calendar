@@ -145,23 +145,24 @@ sensor:
     update_interval: 60s
     attenuation: 11db
     pin: 35
-  - platform: template
-    name: "Inkplate Battery Voltage"
-    lambda: |-
-      id(battery_read_mosfet).turn_on();
-      delay(1);
-      id(battery_voltage).update();
-      int adc = id(battery_voltage).state;
-      id(battery_read_mosfet).turn_off();
-      return adc;
-    filters:
-      - multiply: 2
+  # - platform: template
+  #   name: "Inkplate Battery Voltage"
+  #   lambda: |-
+  #     id(battery_read_mosfet).turn_on();
+  #     delay(1);
+  #     id(battery_voltage).update();
+  #     int adc = id(battery_voltage).state;
+  #     id(battery_read_mosfet).turn_off();
+  #     return adc;
+  #   filters:
+  #     - multiply: 2
     # Get total events for today from Home assistant
     # So we don't have to do the logic in here
   - platform: homeassistant
     name: "Calendar Event Count"
     id: hassio_event_count
     entity_id: sensor.calendar_count
+    internal: true
 
 text_sensor:
   - platform: wifi_info
