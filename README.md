@@ -18,6 +18,13 @@
 - Inkplate
      - I like using the CLI binary. Find the ESPHome-Flasher.app and put it in your applications folder. chmod as needed and then use it this way: `./ESPHome-Flasher.app/Contents/MacOS/ESPHome-Flasher -p /dev/tty.usbserial-310 /Users/you/dev/thisreponame/inkplate.bin`. To find your serial port, `ls -al /dev/tty*`.
 
+# Notes / To-do
+1. I don't have deep sleep working yet. Therefore I just turn it off after it syncs each morning.
+2. It will crash if your data isn't available in the API via NodeRed. If this happens just manually push the data via the inject node and give it a few more times to boot.
+3. It crashes a lot
+4. I have location strings disabled right now until I fix something and will push a fix for that soon.
+
+
 # Support
 None. This is mainly for me right now and not for you. If you're interested in trying it out and wish to collaborate, please contact me at @303 on twitter.
  
