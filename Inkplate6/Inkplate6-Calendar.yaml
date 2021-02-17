@@ -134,6 +134,10 @@ mcp23017:
   #   attenuation: 11db
   #   filters:
   #     - lambda: return (x / 4095 * 1.1 * 3.548133892 * 2);
+  #   OR
+  #     - multiply: 0.000031284
+
+
 
 sensor:
   - platform: adc
@@ -152,14 +156,6 @@ sensor:
       return adc;
     filters:
       - multiply: 2
-  - platform: template
-    name: "inkplate.battery.level"
-    id: battery_level_value
-    unit_of_measurement: '%'
-    update_interval: 5s
-    lambda: |-
-      return ((id(battery_voltage).state /3.70) * 100.00);
-
     # Get total events for today from Home assistant
     # So we don't have to do the logic in here
   - platform: homeassistant
