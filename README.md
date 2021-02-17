@@ -7,7 +7,7 @@
 - Home Assistant running
      - NodeRed w/Node-Red add-on (integration) in HA for API connectivity
      - ESPHome
-- Inkplate6 (will support 10 when i get mine) w/[1200MaH](https://www.amazon.com/gp/product/B07BTSPZW8/ref=ppx_yo_dt_b_asin_title_o05_s00?ie=UTF8&psc=1) or higher Battery
+- Inkplate6 (will support 10 when i get mine) w/[1200MaH](https://www.amazon.com/gp/product/B07BTSPZW8/ref=ppx_yo_dt_b_asin_title_o05_s00?ie=UTF8&psc=1) or higher Battery. Remember to make sure the lead polarity isn't reversed! Mine was.
 - Patience and forgiveness for my shitty code
 
 # Installation
