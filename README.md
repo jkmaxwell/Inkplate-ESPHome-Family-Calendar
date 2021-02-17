@@ -29,4 +29,6 @@
 # Support
 None. This is mainly for me right now and not for you. If you're interested in trying it out and wish to collaborate, please contact me at @303 on twitter.
  
- 
+# Thanks
+- [@jesserockz] for providing the ESPHome-Inkplate library
+- [@jeffehobbs] for setting me on this path and providing guidance
