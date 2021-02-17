@@ -1,7 +1,7 @@
 # ESPHome-Inkplate-Family-Calendar
  Family Calendar application for the Inkplate6 running ESPHome
  
- ![Screenshot Demo](https://github.com/jkmaxwell/ESPHome-Inkplate-Family-Calendar/raw/main/README_images/screenshot.png)
+ <img alt="Screenshot of Inkplate Calendar" src="https://github.com/jkmaxwell/ESPHome-Inkplate-Family-Calendar/raw/main/README_images/screenshot.png" width="400">
  
 # Prerequisites
 - Home Assistant running
