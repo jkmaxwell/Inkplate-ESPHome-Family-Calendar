@@ -1,0 +1,844 @@
+substitutions:
+  # Things go faster with a static IP.
+  # Comment out manual_ip section under wifi if not using one
+  sub_static_ip_address: '192.168.1.214'
+  sub_gateway_address: '192.168.1.1'
+  sub_subnet_address: '255.255.255.0'
+
+esphome:
+  name: inkplate
+  platform: ESP32
+  board: esp-wrover-kit
+  # on_boot:
+  #   priority: -100
+  #   then:
+      # - logger.log: "Waiting for the HA API to connect"
+      # - wait_until:
+      #     api.connected:
+      # Wait for some valid temp data
+      # - delay: 1s
+      # - logger.log: "HA API Connected"
+      # - component.update: esptime
+      # - component.update: battery_voltage
+      # Give some time to get the rest of the HA data
+      # - component.update: inkplate_display
+      # Wait for display update cycle
+      # - logger.log: "Waiting for the display update to finish"
+      # - delay: 6s
+      # Go back to sleep once display has updated
+      # - if:
+      #     condition:
+      #       binary_sensor.is_on: ota_mode
+      #     then:
+      #       - logger.log: "OTA Mode Active: Preventing Deep Sleep"
+      #       - deep_sleep.prevent: deep_sleep_1
+      #     else:
+      #       - logger.log: "OTA Mode Active: Entering Deep Sleep"
+      #       - deep_sleep.enter: deep_sleep_1
+
+# ================================================================================
+#  Logging
+# ================================================================================
+
+logger:
+  level: DEBUG
+
+# ================================================================================
+#  Network & Connectivity
+# ================================================================================
+
+# You should be using a secrets.yaml file, either local to your esphome dir
+# or pointing to your main HA root file
+#
+# More info here: https://esphome.io/guides/faq.html
+
+wifi:
+  ssid: !secret wifi_network_name
+  password: !secret wifi_pass
+  # This assumes static IP assigned via your router's routing table
+  # Comment this out if using Dynamic
+  manual_ip:
+    static_ip: ${sub_static_ip_address}
+    gateway: ${sub_gateway_address}
+    subnet: ${sub_subnet_address}
+
+ota:
+  password: !secret ota_pass
+
+api:
+  password: !secret ota_pass
+  id: hassio_api
+
+captive_portal:
+
+# ================================================================================
+#  Hardware
+# ================================================================================
+
+# deep_sleep:
+#   run_duration: 120s
+#   sleep_duration: 1min
+#   id: deep_sleep_1
+
+switch:
+  - platform: restart
+    name: "Inkplate Reboot"
+    id: reboot
+
+  - platform: gpio
+    id: battery_read_mosfet
+    pin:
+      mcp23017: mcp23017_hub
+      number: 9
+
+  - platform: template
+    name: "Inkplate Greyscale mode"
+    lambda: return id(inkplate_display).get_greyscale();
+    turn_on_action:
+      - lambda: id(inkplate_display).set_greyscale(true);
+    turn_off_action:
+      - lambda: id(inkplate_display).set_greyscale(false);
+
+  - platform: template
+    name: "Inkplate Partial Updating"
+    lambda: return id(inkplate_display).get_partial_updating();
+    turn_on_action:
+      - lambda: id(inkplate_display).set_partial_updating(true);
+    turn_off_action:
+      - lambda: id(inkplate_display).set_partial_updating(false);
+
+  - platform: template
+    name: "Inkplate Refresh Screen"
+    icon: "mdi:refresh"
+    internal: false
+    turn_on_action:
+      - lambda: id(inkplate_display).update();
+
+i2c:
+
+mcp23017:
+  - id: mcp23017_hub
+    address: 0x20
+
+# ================================================================================
+#  Clean This
+# ================================================================================
+
+  # This crashes the hell out of the unit so it can't be right
+  # but the calculation here needs to be fixed per
+  # https://github.com/e-radionicacom/Inkplate-Arduino-library/commit/27c9b71f51b70f3b0df6750bcc0f46a550b408de
+  # - platform: adc
+  #   id: battery_voltage
+  #   update_interval: 60s
+  #   pin: 35
+  #   attenuation: 11db
+  #   filters:
+  #     - lambda: return (x / 4095 * 1.1 * 3.548133892 * 2);
+
+sensor:
+  - platform: adc
+    id: battery_voltage
+    update_interval: 60s
+    attenuation: 11db
+    pin: 35
+  - platform: template
+    name: "Inkplate Battery Voltage"
+    lambda: |-
+      id(battery_read_mosfet).turn_on();
+      delay(1);
+      id(battery_voltage).update();
+      int adc = id(battery_voltage).state;
+      id(battery_read_mosfet).turn_off();
+      return adc;
+    filters:
+      - multiply: 2
+  - platform: template
+    name: "inkplate.battery.level"
+    id: battery_level_value
+    unit_of_measurement: '%'
+    update_interval: 5s
+    lambda: |-
+      return ((id(battery_voltage).state /3.70) * 100.00);
+
+    # Get total events for today from Home assistant
+    # So we don't have to do the logic in here
+  - platform: homeassistant
+    name: "Calendar Event Count"
+    id: hassio_event_count
+    entity_id: sensor.calendar_count
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: ESP IP Address
+      id: wifi_ip_address
+    ssid:
+      name: ESP Connected SSID
+      id: wifi_ssid
+    bssid:
+      name: ESP Connected BSSID
+      id: wifi_bssid
+    mac_address:
+      name: ESP Mac Wifi Address
+      id: wifi_mac
+
+    # Get last updated string from HA
+    # This successfully refreshes the display when values are posted
+  - platform: homeassistant
+    name: "Last Updated"
+    id: hassio_last_updated
+    entity_id: sensor.calendar_last_updated
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            id(inkplate_display).update();
+
+    # Get capitalized day of the week from HA
+    # So we don't have to do the logic in here
+    # Although we may be able to save some memory by doing it this way in
+    # the future:
+    #
+    # https://stackoverflow.com/questions/48226686/serverless-yml-touppercase
+    # But i have no idea if that will work and this is easier for now
+  - platform: homeassistant
+    name: "Header Day of the Week"
+    id: hassio_header_day
+    entity_id: sensor.calendar_day_of_the_week
+    internal: true
+
+    # Event Titles
+  - platform: homeassistant
+    internal: true
+    name: "Event 1 Title"
+    id: hassio_event_title_1
+    entity_id: sensor.calendar_event_1_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 2 Title"
+    id: hassio_event_title_2
+    entity_id: sensor.calendar_event_2_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 3 Title"
+    id: hassio_event_title_3
+    entity_id: sensor.calendar_event_3_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 4 Title"
+    id: hassio_event_title_4
+    entity_id: sensor.calendar_event_4_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 5 Title"
+    id: hassio_event_title_5
+    entity_id: sensor.calendar_event_5_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 6 Title"
+    id: hassio_event_title_6
+    entity_id: sensor.calendar_event_6_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 7 Title"
+    id: hassio_event_title_7
+    entity_id: sensor.calendar_event_7_title
+  - platform: homeassistant
+    internal: true
+    name: "Event 8 Title"
+    id: hassio_event_title_8
+    entity_id: sensor.calendar_event_8_title
+
+    # Event Starts
+  - platform: homeassistant
+    internal: true
+    name: "Event 1 Start Time"
+    id: hassio_event_start_1
+    entity_id: sensor.calendar_event_1_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 2 Start Time"
+    id: hassio_event_start_2
+    entity_id: sensor.calendar_event_2_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 3 Start Time"
+    id: hassio_event_start_3
+    entity_id: sensor.calendar_event_3_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 4 Start Time"
+    id: hassio_event_start_4
+    entity_id: sensor.calendar_event_4_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 5 Start Time"
+    id: hassio_event_start_5
+    entity_id: sensor.calendar_event_5_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 6 Start Time"
+    id: hassio_event_start_6
+    entity_id: sensor.calendar_event_6_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 7 Start Time"
+    id: hassio_event_start_7
+    entity_id: sensor.calendar_event_7_start
+  - platform: homeassistant
+    internal: true
+    name: "Event 8 Start Time"
+    id: hassio_event_start_8
+    entity_id: sensor.calendar_event_8_start
+
+    # Event Ends
+  - platform: homeassistant
+    internal: true
+    name: "Event 1 End Time"
+    id: hassio_event_end_1
+    entity_id: sensor.calendar_event_1_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 2 End Time"
+    id: hassio_event_end_2
+    entity_id: sensor.calendar_event_2_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 3 End Time"
+    id: hassio_event_end_3
+    entity_id: sensor.calendar_event_3_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 4 End Time"
+    id: hassio_event_end_4
+    entity_id: sensor.calendar_event_4_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 5 End Time"
+    id: hassio_event_end_5
+    entity_id: sensor.calendar_event_5_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 6 End Time"
+    id: hassio_event_end_6
+    entity_id: sensor.calendar_event_6_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 7 End Time"
+    id: hassio_event_end_7
+    entity_id: sensor.calendar_event_7_end
+  - platform: homeassistant
+    internal: true
+    name: "Event 8 End Time"
+    id: hassio_event_end_8
+    entity_id: sensor.calendar_event_8_end
+
+    # Event Locations
+  - platform: homeassistant
+    internal: true
+    name: "Event 1 Location"
+    id: hassio_event_location_1
+    entity_id: sensor.calendar_event_1_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 2 Location"
+    id: hassio_event_location_2
+    entity_id: sensor.calendar_event_2_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 3 Location"
+    id: hassio_event_location_3
+    entity_id: sensor.calendar_event_3_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 4 Location"
+    id: hassio_event_location_4
+    entity_id: sensor.calendar_event_4_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 5 Location"
+    id: hassio_event_location_5
+    entity_id: sensor.calendar_event_5_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 6 Location"
+    id: hassio_event_location_6
+    entity_id: sensor.calendar_event_6_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 7 Location"
+    id: hassio_event_location_7
+    entity_id: sensor.calendar_event_7_location
+  - platform: homeassistant
+    internal: true
+    name: "Event 8 Location"
+    id: hassio_event_location_8
+    entity_id: sensor.calendar_event_8_location
+
+binary_sensor:
+  # General
+  - platform: status
+    name: "Inkplate Status"
+    id: system_status
+  # GPIO
+  - platform: gpio
+    name: "Inkplate Touch Pad 1"
+    pin:
+      mcp23017: mcp23017_hub
+      number: 10
+  - platform: gpio
+    name: "Inkplate Touch Pad 2"
+    pin:
+      mcp23017: mcp23017_hub
+      number: 11
+  - platform: gpio
+    name: "Inkplate Touch Pad 3"
+    pin:
+      mcp23017: mcp23017_hub
+      number: 12
+    # Sleep
+    # ---- Thanks to https://github.com/owenb321/eink_ambient_display for this:
+  # - platform: template
+  #   name: "OTA Mode"
+  #   id: ota_mode
+  #   internal: true
+  #   on_state:
+  #     - if:
+  #         condition:
+  #           binary_sensor.is_on: ota_mode
+  #         then:
+  #           - deep_sleep.prevent: deep_sleep_1
+  # - platform: template
+  #   name: "Sleep Mode"
+  #   id: sleep_mode
+  #   internal: true
+  #   on_state:
+  #     - if:
+  #         condition:
+  #           binary_sensor.is_on: sleep_mode
+  #         then:
+  #           - deep_sleep.enter: deep_sleep_1
+    # Event All-Day
+  - platform: homeassistant
+    internal: true
+    name: "Event 1 All-Day Status (binary)"
+    id: hassio_event_allday_1
+    entity_id: input_boolean.calendar_event_1_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 2 All-Day Status (binary)"
+    id: hassio_event_allday_2
+    entity_id: input_boolean.calendar_event_2_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 3 All-Day Status (binary)"
+    id: hassio_event_allday_3
+    entity_id: input_boolean.calendar_event_3_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 4 All-Day Status (binary)"
+    id: hassio_event_allday_4
+    entity_id: input_boolean.calendar_event_4_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 5 All-Day Status (binary)"
+    id: hassio_event_allday_5
+    entity_id: input_boolean.calendar_event_5_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 6 All-Day Status (binary)"
+    id: hassio_event_allday_6
+    entity_id: input_boolean.calendar_event_6_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 7 All-Day Status (binary)"
+    id: hassio_event_allday_7
+    entity_id: input_boolean.calendar_event_7_allday
+  - platform: homeassistant
+    internal: true
+    name: "Event 8 All-Day Status (binary)"
+    id: hassio_event_allday_8
+    entity_id: input_boolean.calendar_event_8_allday
+    # Event Ends
+  - platform: homeassistant
+    internal: true
+    name: "Event 1 Over Status (binary)"
+    id: hassio_event_over_1
+    entity_id: input_boolean.calendar_event_1_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 2 Over Status (binary)"
+    id: hassio_event_over_2
+    entity_id: input_boolean.calendar_event_2_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 3 Over Status (binary)"
+    id: hassio_event_over_3
+    entity_id: input_boolean.calendar_event_3_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 4 Over Status (binary)"
+    id: hassio_event_over_4
+    entity_id: input_boolean.calendar_event_4_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 5 Over Status (binary)"
+    id: hassio_event_over_5
+    entity_id: input_boolean.calendar_event_5_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 6 Over Status (binary)"
+    id: hassio_event_over_6
+    entity_id: input_boolean.calendar_event_6_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 7 Over Status (binary)"
+    id: hassio_event_over_7
+    entity_id: input_boolean.calendar_event_7_over
+  - platform: homeassistant
+    internal: true
+    name: "Event 8 Over Status (binary)"
+    id: hassio_event_over_8
+    entity_id: input_boolean.calendar_event_8_over
+
+# ================================================================================
+#  Date & Time
+# ================================================================================
+
+time:
+  - platform: sntp
+    id: esptime
+    timezone: America/Los_Angeles
+  - platform: homeassistant
+    id: homeassistant_time
+    on_time_sync:
+      then:
+        logger.log: "Time has been set via hassio"
+
+# ================================================================================
+#  Typography
+# ================================================================================
+
+font:
+  - file: "fonts/BDEject.ttf"
+    id: fontPageTitle
+    size: 20
+    glyphs: "AGEND"
+  - file: "fonts/04B_31__.ttf"
+    id: fontPageSubTitle
+    size: 12
+    glyphs: "FORTHEMAXWLIY "
+  - file: "fonts/04B_31__.ttf"
+    id: fontPageDay
+    size: 12
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  - file: "fonts/digitalix.ttf"
+    id: fontPageDate
+    size: 19
+    glyphs: "1234567890."
+  - file: "fonts/Inter-Black.ttf"
+    id: fontEventTitle
+    size: 36
+    glyphs: '!"%/()+,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz#'
+  - file: "fonts/Inter-SemiBold.ttf"
+    id: fontLocationString
+    glyphs: ',./:?=%0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz#'
+    size: 18
+  - file: "fonts/visitor1.ttf"
+    id: fontFooter1
+    size: 19
+    glyphs: '!"%()+,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz#'
+  - file: "fonts/Inter-SemiBold.ttf"
+    id: font25
+    size: 25
+    glyphs: '!"%()+,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz#'
+
+
+
+# ================================================================================
+#  Color Definitions
+# ================================================================================
+
+color:
+- id: color_black
+  red: 0%
+  green: 0%
+  blue: 0%
+- id: color_gray
+  red: 50%
+  green: 50%
+  blue: 50%
+
+# ================================================================================
+#  Images & Glyphs
+# ================================================================================
+
+image:
+  - file: "images/loading_screen.gif"
+    id: loading_screen
+    type: BINARY
+
+# ================================================================================
+#  Display
+# ================================================================================
+
+display:
+- platform: inkplate6
+  id: inkplate_display
+  greyscale: true
+  partial_updating: false
+  update_interval: never
+  rotation: 270°
+
+  ckv_pin: 32
+  sph_pin: 33
+  gmod_pin:
+    mcp23017: mcp23017_hub
+    number: 1
+  gpio0_enable_pin:
+    mcp23017: mcp23017_hub
+    number: 8
+  oe_pin:
+    mcp23017: mcp23017_hub
+    number: 0
+  spv_pin:
+    mcp23017: mcp23017_hub
+    number: 2
+  powerup_pin:
+    mcp23017: mcp23017_hub
+    number: 4
+  wakeup_pin:
+    mcp23017: mcp23017_hub
+    number: 3
+  vcom_pin:
+    mcp23017: mcp23017_hub
+    number: 5
+
+  lambda: |-
+    it.fill(COLOR_ON);
+
+    // if the api is not Connected
+    if (!id(hassio_api)->is_connected()) {
+      // show the badge
+      it.image(200, 300, id(loading_screen), COLOR_OFF, COLOR_ON);
+    } else {
+      // then show the stuff
+
+      int ui_offset_top = 72;
+      int ui_event_block_height = 80;
+
+      // #########################################################################
+      // HEADER
+      // #########################################################################
+
+      it.print(30, 11, id(fontPageTitle), COLOR_OFF, TextAlign::TOP_LEFT, "AGENDA");
+      it.print(30, 29, id(fontPageSubTitle), COLOR_OFF, TextAlign::TOP_LEFT, "FOR THE MAXWELL FAMILY");
+      it.printf(570, 11, id(fontPageDay), COLOR_OFF, TextAlign::TOP_RIGHT, "%s", id(hassio_header_day).state.c_str());
+      it.strftime(570, 22, id(fontPageDate), id(color_gray), TextAlign::TOP_RIGHT, "%Y.%m.%d", id(homeassistant_time).now());
+
+      // Draw a line-ish rectangle from [30,48] to [570,48]
+      it.filled_rectangle(30, 48, 540, 2, COLOR_OFF);
+
+      // #########################################################################
+      // FOOTER
+      // #########################################################################
+
+      // Draw a line-ish rectangle 32px (30px + 2 for the height of the thing) from the bottom of the screen
+      it.filled_rectangle(30, it.get_height() - 48, 540, 2, COLOR_OFF);
+
+      // LEFT COLUMN
+
+      // Print the IP address which you can get from id(sensor_id).state
+      it.printf(30, 755, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ip address %s", id(wifi_ip_address).state.c_str());
+
+      // Print Hassio Connection Status
+      std::string hassio_status = "no connection";
+      if (id(hassio_api)->is_connected()) {
+        hassio_status = "connected";
+      }
+      it.printf(30, 768, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "uplink status: %s", hassio_status.c_str());
+
+      // Print Battery Voltage
+      it.printf(30, 781, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "battery voltage: %.2f", id(battery_voltage).state);
+
+      // RIGHT COLUMN
+
+      // Print # of events
+      it.printf(570, 755, id(fontFooter1), COLOR_OFF, TextAlign::TOP_RIGHT, "%.0f events today", id(hassio_event_count).state);
+
+      // Print last updated
+      it.printf(570, 768, id(fontFooter1), COLOR_OFF, TextAlign::TOP_RIGHT, "as of %s", id(hassio_last_updated).state.c_str());
+
+      // #########################################################################
+      // CONTENT
+      // #########################################################################
+
+      int pmOffset = 86;
+      int i = 0;
+      int allDayCount = 0;
+
+      // Test Strings
+
+      if (i < id(hassio_event_count).state) {
+        std::string timeNoAMPM = id(hassio_event_start_1).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_1).state.substr(6, 2);
+        if (id(hassio_event_allday_1).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_1).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_1).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_1).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_1).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+        std::string timeNoAMPM = id(hassio_event_start_2).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_2).state.substr(6, 2);
+        if (id(hassio_event_allday_2).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_2).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_2).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_2).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_2).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+        std::string timeNoAMPM = id(hassio_event_start_3).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_3).state.substr(6, 2);
+        if (id(hassio_event_allday_3).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_3).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_3).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_3).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_3).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+        std::string timeNoAMPM = id(hassio_event_start_4).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_4).state.substr(6, 2);
+        if (id(hassio_event_allday_4).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_4).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_4).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_4).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_4).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+        std::string timeNoAMPM = id(hassio_event_start_5).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_5).state.substr(6, 2);
+        if (id(hassio_event_allday_5).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_5).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_5).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_5).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_5).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+
+        std::string timeNoAMPM = id(hassio_event_start_6).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_6).state.substr(6, 2);
+        if (id(hassio_event_allday_6).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_6).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_6).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_6).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_6).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+        std::string timeNoAMPM = id(hassio_event_start_7).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_7).state.substr(6, 2);
+        if (id(hassio_event_allday_7).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_7).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_7).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_7).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_7).state.c_str());
+      }
+      i++;
+      if (i < id(hassio_event_count).state) {
+
+        std::string timeNoAMPM = id(hassio_event_start_8).state.substr(0, 5);
+        std::string timeAMPM = id(hassio_event_start_8).state.substr(6, 2);
+        if (id(hassio_event_allday_8).state) {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "ALL");
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "DAY");
+          allDayCount++;
+        } else {
+          it.print(30, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height), id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, timeAMPM.c_str());
+          timeNoAMPM = id(hassio_event_end_8).state.substr(0, 5);
+          timeAMPM = id(hassio_event_end_8).state.substr(6, 2);
+          it.print(30, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeNoAMPM.c_str());
+          it.print(pmOffset, ui_offset_top + (i * ui_event_block_height) + 14, id(fontFooter1), id(color_gray), TextAlign::TOP_LEFT, timeAMPM.c_str());
+        }
+        it.print(123, ui_offset_top + (i * ui_event_block_height) - 7, id(fontEventTitle), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_title_8).state.c_str());
+        //it.print(123, ui_offset_top + (i * ui_event_block_height) + 33, id(fontLocationString), COLOR_OFF, TextAlign::TOP_LEFT, id(hassio_event_location_8).state.c_str());
+      }
+
+      if (allDayCount > 0) {
+        // draw divider
+        // Draw a line-ish rectangle from [30,48] to [570,48]
+        int yPos = ui_offset_top + (allDayCount * ui_event_block_height) - 30;
+        it.filled_rectangle(30, yPos, 540, 2, id(color_gray));// Print all day events
+        it.printf(570, 781, id(fontFooter1), COLOR_OFF, TextAlign::TOP_RIGHT, "all day events %.0i", allDayCount);
+      }
+    }
