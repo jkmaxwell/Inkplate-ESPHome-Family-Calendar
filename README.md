@@ -1,6 +1,8 @@
 # ESPHome-Inkplate-Family-Calendar
  Family Calendar application for the Inkplate6 running ESPHome
  
+ ![Screenshot Demo](https://github.com/jkmaxwell/ESPHome-Inkplate-Family-Calendar/raw/main/README_images/screenshot.png)
+ 
 # Prerequisites
 - Home Assistant running
      - NodeRed w/Node-Red add-on (integration) in HA for API connectivity
