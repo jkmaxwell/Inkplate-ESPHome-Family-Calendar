@@ -141,10 +141,41 @@ mcp23017:
 
 sensor:
   - platform: adc
+    id: battery_voltage_raw
+    update_interval: 60s
+    attenuation: 11db
+    accuracy_decimals: 5
+    pin: 35
+    # on_value:
+    #   then:
+    #     lambda: |-
+    #       id(battery_voltage_raw_hassio).state = id(battery_voltage_raw).state;
+  # - platform: homeassistant
+  #   id: battery_voltage_raw_hassio
+  #   entity_id: sensor.battery_voltage_raw_hassio
+  #   accuracy_decimals: 5
+  - platform: adc
     id: battery_voltage
     update_interval: 60s
     attenuation: 11db
+    accuracy_decimals: 5
     pin: 35
+    # filters:
+    # - calibrate_linear:
+    #   - 0 -> 0
+    #   - 2.1181 -> 4.005
+    #   - 2.14 -> 4.02
+    #   - 2.13 -> 4.035
+    #   - 2.14 -> 4.04
+    #   - 2.15 -> 4.045
+    #   - 2.16 -> 4.055
+    #   - 2.16286 -> 4.07
+    #   - 2.17 -> 4.09
+    #   - 2.18476 -> 4.1
+    #   - 2.18 -> 4.12
+    #   - 2.19 -> 4.13
+    #   - 2.21 -> 4.16
+    #   - 2.23 -> 4.17
   # - platform: template
   #   name: "Inkplate Battery Voltage"
   #   lambda: |-
@@ -163,6 +194,14 @@ sensor:
     id: hassio_event_count
     entity_id: sensor.calendar_count
     internal: true
+  - platform: template
+    name: "Battery percentage"
+    id: battery_percentage
+    lambda: |-
+      // 2.234 is the max voltage i see when my 1700MAh is plugged in
+      // 1.826 is the minimum before it dies
+      // Usable range is 1.826 – 2.234
+      return 100 * (id(battery_voltage).state - 1.826) / 1.826;
 
 text_sensor:
   - platform: wifi_info
@@ -415,6 +454,12 @@ binary_sensor:
   #           binary_sensor.is_on: sleep_mode
   #         then:
   #           - deep_sleep.enter: deep_sleep_1
+    # Proving a point to @jesserockz
+  # - platform: homeassistant
+  #   internal: true
+  #   name: "My Unpleasant Binary Sensor"
+  #   id: binary_sensor_test
+  #   entity_id: binary_sensor.unpleasant_results
     # Event All-Day
   - platform: homeassistant
     internal: true
@@ -656,7 +701,7 @@ display:
       it.printf(30, 768, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "uplink status: %s", hassio_status.c_str());
 
       // Print Battery Voltage
-      it.printf(30, 781, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "battery voltage: %.2f", id(battery_voltage).state);
+      it.printf(30, 781, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "battery level: %.2f%%", id(battery_percentage).state);
 
       // RIGHT COLUMN
 
