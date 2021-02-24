@@ -201,10 +201,11 @@ sensor:
   - platform: template
     name: "Battery percentage"
     id: battery_percentage
-    filters:
-      - calibrate_linear:
-          - 1.826 -> 0
-          - 2.234 -> 100
+    lambda: return 100 * ((id(battery_voltage).state - 1.826) / (2.234 - 1.826));
+    # filters:
+    #   - calibrate_linear:
+    #       - 1.826 -> 0
+    #       - 2.234 -> 100
 
 
 text_sensor:
