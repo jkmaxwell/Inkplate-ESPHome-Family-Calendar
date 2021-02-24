@@ -194,14 +194,18 @@ sensor:
     id: hassio_event_count
     entity_id: sensor.calendar_count
     internal: true
+    # 2.234 is the max voltage i see when my 1700MAh is plugged in
+    # 1.826 is the minimum before it dies
+    # Usable range is 1.826 – 2.234
+    # return 100 * ((id(battery_voltage).state - 1.826) / (2.234 - 1.826));
   - platform: template
     name: "Battery percentage"
     id: battery_percentage
-    lambda: |-
-      // 2.234 is the max voltage i see when my 1700MAh is plugged in
-      // 1.826 is the minimum before it dies
-      // Usable range is 1.826 – 2.234
-      return 100 * (id(battery_voltage).state - 1.826) / 1.826;
+    filters:
+      - calibrate_linear:
+          - 1.826 -> 0
+          - 2.234 -> 100
+
 
 text_sensor:
   - platform: wifi_info
@@ -701,7 +705,7 @@ display:
       it.printf(30, 768, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "uplink status: %s", hassio_status.c_str());
 
       // Print Battery Voltage
-      it.printf(30, 781, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "battery level: %.2f%%", id(battery_percentage).state);
+      it.printf(30, 781, id(fontFooter1), COLOR_OFF, TextAlign::TOP_LEFT, "battery level: %.1f%%", id(battery_percentage).state);
 
       // RIGHT COLUMN
 
