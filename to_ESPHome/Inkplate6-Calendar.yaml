@@ -141,71 +141,25 @@ mcp23017:
 
 sensor:
   - platform: adc
-    id: battery_voltage_raw
-    update_interval: 60s
-    attenuation: 11db
-    accuracy_decimals: 5
-    pin: 35
-    # on_value:
-    #   then:
-    #     lambda: |-
-    #       id(battery_voltage_raw_hassio).state = id(battery_voltage_raw).state;
-  # - platform: homeassistant
-  #   id: battery_voltage_raw_hassio
-  #   entity_id: sensor.battery_voltage_raw_hassio
-  #   accuracy_decimals: 5
-  - platform: adc
     id: battery_voltage
     update_interval: 60s
     attenuation: 11db
     accuracy_decimals: 5
     pin: 35
-    # filters:
-    # - calibrate_linear:
-    #   - 0 -> 0
-    #   - 2.1181 -> 4.005
-    #   - 2.14 -> 4.02
-    #   - 2.13 -> 4.035
-    #   - 2.14 -> 4.04
-    #   - 2.15 -> 4.045
-    #   - 2.16 -> 4.055
-    #   - 2.16286 -> 4.07
-    #   - 2.17 -> 4.09
-    #   - 2.18476 -> 4.1
-    #   - 2.18 -> 4.12
-    #   - 2.19 -> 4.13
-    #   - 2.21 -> 4.16
-    #   - 2.23 -> 4.17
-  # - platform: template
-  #   name: "Inkplate Battery Voltage"
-  #   lambda: |-
-  #     id(battery_read_mosfet).turn_on();
-  #     delay(1);
-  #     id(battery_voltage).update();
-  #     int adc = id(battery_voltage).state;
-  #     id(battery_read_mosfet).turn_off();
-  #     return adc;
-  #   filters:
-  #     - multiply: 2
-    # Get total events for today from Home assistant
-    # So we don't have to do the logic in here
   - platform: homeassistant
     name: "Calendar Event Count"
     id: hassio_event_count
     entity_id: sensor.calendar_count
     internal: true
-    # 2.234 is the max voltage i see when my 1700MAh is plugged in
-    # 1.826 is the minimum before it dies
-    # Usable range is 1.826 – 2.234
-    # return 100 * ((id(battery_voltage).state - 1.826) / (2.234 - 1.826));
   - platform: template
     name: "Battery percentage"
     id: battery_percentage
-    lambda: return 100 * ((id(battery_voltage).state - 1.826) / (2.234 - 1.826));
-    # filters:
-    #   - calibrate_linear:
-    #       - 1.826 -> 0
-    #       - 2.234 -> 100
+    lambda: |-
+      return id(battery_voltage).state;
+    filters:
+      - calibrate_linear:
+          - 1.826 -> 0
+          - 2.234 -> 100
 
 
 text_sensor:
